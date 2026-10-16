@@ -1,4 +1,19 @@
-<!DOCTYPE html>
+
+                        <!DOCTYPE html>
+                        <html lang="en">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  background-color: white; /* Ensure the iframe has a white background */
+                }
+
+                
+              </style>
+                        </head>
+                        <body>
+                            <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -159,15 +174,12 @@
 
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-import{getFirestore,collection,doc,setDoc,getDoc,query,where,serverTimestamp,updateDoc,Timestamp}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-import{getAuth,signInAnonymously}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import{getFirestore,collection,doc,setDoc,getDoc,serverTimestamp,updateDoc,Timestamp}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
 const firebaseConfig={apiKey:"AIzaSyCJCPs7llZAkKTvnXCw1OIRm3x4l2QatG4",authDomain:"mcl-international-cruis.firebaseapp.com",projectId:"mcl-international-cruis",storageBucket:"mcl-international-cruis.firebasestorage.app",messagingSenderId:"534803010314",appId:"1:534803010314:web:12690c91c2a247c6f9a0f3"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
-const auth=getAuth(app);
 
-// Question Bank (abbreviated for space - same as before)
 const QB={
 fire_safety:[
 {id:'fs1',text:'What is the most common cause of fires on board ships?',options:['Electrical faults','Cooking accidents','Smoking materials','All of the above'],correct:3},
@@ -491,7 +503,7 @@ teamwork:[
 ]
 };
 
-let state={applicant:null,attempt:null,questions:[],answers:{},timerInterval:null,deadline:null,submitted:false,authReady:false};
+let state={applicant:null,attempt:null,questions:[],answers:{},timerInterval:null,deadline:null,submitted:false};
 
 function showLoading(t='Loading...'){document.getElementById('loadingText').textContent=t;document.getElementById('loading').classList.add('active')}
 function hideLoading(){document.getElementById('loading').classList.remove('active')}
@@ -505,21 +517,6 @@ function showModal(title,msg,buttons=[]){
 function normalizeEmail(e){return e.trim().toLowerCase()}
 function genRef(){const t=Date.now().toString(36).toUpperCase();const r=Math.random().toString(36).substring(2,8).toUpperCase();return`MCL-${t}-${r}`}
 function shuffleArray(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-
-// Initialize Firebase Authentication
-async function initAuth(){
-    try{
-        showLoading('Initializing...');
-        await signInAnonymously(auth);
-        state.authReady=true;
-        hideLoading();
-        console.log('Firebase auth ready');
-    }catch(err){
-        hideLoading();
-        console.error('Auth error:',err);
-        showModal('Initialization Error','Failed to connect to Firebase. Please refresh the page.');
-    }
-}
 
 function selectQuestions(){
     const cats=[{key:'fire_safety',count:7},{key:'survival',count:7},{key:'general_ship',count:5},{key:'maritime_law',count:3},{key:'teamwork',count:3}];
@@ -545,10 +542,7 @@ function showPage(pageId){
     });
 }
 
-document.getElementById('beginAssessmentBtn').addEventListener('click',()=>{
-    if(!state.authReady){showModal('Please Wait','Application is still initializing. Please wait a moment.');return}
-    showPage('registrationPage');
-});
+document.getElementById('beginAssessmentBtn').addEventListener('click',()=>showPage('registrationPage'));
 
 const seamanBookInput=document.getElementById('seamanBook');
 const fileInfo=document.getElementById('fileInfo');
@@ -567,8 +561,6 @@ seamanBookInput.addEventListener('change',e=>{
 
 document.getElementById('registrationForm').addEventListener('submit',async e=>{
     e.preventDefault();
-    if(!state.authReady){showModal('Please Wait','Application is still initializing.');return}
-    
     const fullName=document.getElementById('fullName').value.trim();
     const email=normalizeEmail(document.getElementById('email').value);
     const nationality=document.getElementById('nationality').value.trim();
@@ -826,8 +818,36 @@ document.getElementById('downloadPdfBtn').addEventListener('click',()=>{
         showModal('Error','Failed to generate PDF.');
     }
 });
-
-initAuth();
 </script>
 </body>
 </html>
+
+
+              <script>
+                              const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const server = http.createServer((req, res) => {
+    const filePath = path.join(__dirname, 'index.html');
+    fs.readFile(filePath, (err, content) => {
+        if (err) {
+            res.writeHead(500);
+            res.end('Error loading page');
+        } else {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(content);
+        }
+    });
+});
+
+server.listen(3000, () => {
+    console.log('Server running at http://localhost:3000');
+    console.log('Open this URL in your browser');
+});
+
+
+              </script>
+                        </body>
+                        </html>
+                    
