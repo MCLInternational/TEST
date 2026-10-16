@@ -91,9 +91,8 @@
         @keyframes spin{to{transform:rotate(360deg)}}
         .loading-text{font-size:16px;color:var(--navy);font-weight:600}
         .hidden{display:none!important}
-        .saving-indicator{font-size:12px;color:var(--blue);margin-top:5px;font-style:italic}
         @media(max-width:1024px){.welcome-page{grid-template-columns:1fr;gap:30px}.welcome-left{order:2}.welcome-right{order:1;text-align:center}.assessment-content{grid-template-columns:1fr}.navigation-panel{position:static}}
-        @media(max-width:768px){.welcome-title{font-size:30px}.welcome-slogan{font-size:18px}.registration-page{padding:25px 18px}.questions-container{padding:18px}.result-page{padding:35px 18px}.nav-grid{grid-template-columns:repeat(5,1fr)}}
+        @media(max-width:768px){.welcome-title{font-size:30px}.welcome-slogan{font-size:18px}.registration-page{padding:25px 18px}.questions-container{padding:18px}.result-page{padding:35px 18px}}
     </style>
 </head>
 <body>
@@ -160,13 +159,15 @@
 
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-import{getFirestore,collection,doc,setDoc,getDoc,query,where,serverTimestamp,runTransaction,addDoc,updateDoc,Timestamp}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+import{getFirestore,collection,doc,setDoc,getDoc,query,where,serverTimestamp,updateDoc,Timestamp}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+import{getAuth,signInAnonymously}from'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 const firebaseConfig={apiKey:"AIzaSyCJCPs7llZAkKTvnXCw1OIRm3x4l2QatG4",authDomain:"mcl-international-cruis.firebaseapp.com",projectId:"mcl-international-cruis",storageBucket:"mcl-international-cruis.firebasestorage.app",messagingSenderId:"534803010314",appId:"1:534803010314:web:12690c91c2a247c6f9a0f3"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
+const auth=getAuth(app);
 
-// ========== QUESTION BANK (300+ questions, 60+ per category) ==========
+// Question Bank (abbreviated for space - same as before)
 const QB={
 fire_safety:[
 {id:'fs1',text:'What is the most common cause of fires on board ships?',options:['Electrical faults','Cooking accidents','Smoking materials','All of the above'],correct:3},
@@ -490,18 +491,8 @@ teamwork:[
 ]
 };
 
-// ========== APPLICATION STATE ==========
-let state={
-    applicant:null,
-    attempt:null,
-    questions:[],
-    answers:{},
-    timerInterval:null,
-    deadline:null,
-    submitted:false
-};
+let state={applicant:null,attempt:null,questions:[],answers:{},timerInterval:null,deadline:null,submitted:false,authReady:false};
 
-// ========== UTILITY FUNCTIONS ==========
 function showLoading(t='Loading...'){document.getElementById('loadingText').textContent=t;document.getElementById('loading').classList.add('active')}
 function hideLoading(){document.getElementById('loading').classList.remove('active')}
 function showModal(title,msg,buttons=[]){
@@ -515,15 +506,23 @@ function normalizeEmail(e){return e.trim().toLowerCase()}
 function genRef(){const t=Date.now().toString(36).toUpperCase();const r=Math.random().toString(36).substring(2,8).toUpperCase();return`MCL-${t}-${r}`}
 function shuffleArray(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 
-// ========== QUESTION SELECTION ==========
+// Initialize Firebase Authentication
+async function initAuth(){
+    try{
+        showLoading('Initializing...');
+        await signInAnonymously(auth);
+        state.authReady=true;
+        hideLoading();
+        console.log('Firebase auth ready');
+    }catch(err){
+        hideLoading();
+        console.error('Auth error:',err);
+        showModal('Initialization Error','Failed to connect to Firebase. Please refresh the page.');
+    }
+}
+
 function selectQuestions(){
-    const cats=[
-        {key:'fire_safety',count:7},
-        {key:'survival',count:7},
-        {key:'general_ship',count:5},
-        {key:'maritime_law',count:3},
-        {key:'teamwork',count:3}
-    ];
+    const cats=[{key:'fire_safety',count:7},{key:'survival',count:7},{key:'general_ship',count:5},{key:'maritime_law',count:3},{key:'teamwork',count:3}];
     let selected=[];
     cats.forEach(c=>{
         const pool=shuffleArray(QB[c.key]);
@@ -532,18 +531,12 @@ function selectQuestions(){
             const shuffledOpts=q.options.map((o,i)=>({text:o,origIdx:i}));
             const shuffled=shuffleArray(shuffledOpts);
             const newCorrect=shuffled.findIndex(o=>o.origIdx===q.correct);
-            selected.push({
-                id:q.id,
-                text:q.text,
-                options:shuffled.map(o=>o.text),
-                correct:newCorrect
-            });
+            selected.push({id:q.id,text:q.text,options:shuffled.map(o=>o.text),correct:newCorrect});
         });
     });
     return shuffleArray(selected);
 }
 
-// ========== PAGE NAVIGATION ==========
 function showPage(pageId){
     ['welcomePage','registrationPage','assessmentPage','resultPage'].forEach(id=>{
         const el=document.getElementById(id);
@@ -552,10 +545,11 @@ function showPage(pageId){
     });
 }
 
-// ========== WELCOME PAGE ==========
-document.getElementById('beginAssessmentBtn').addEventListener('click',()=>{showPage('registrationPage')});
+document.getElementById('beginAssessmentBtn').addEventListener('click',()=>{
+    if(!state.authReady){showModal('Please Wait','Application is still initializing. Please wait a moment.');return}
+    showPage('registrationPage');
+});
 
-// ========== REGISTRATION ==========
 const seamanBookInput=document.getElementById('seamanBook');
 const fileInfo=document.getElementById('fileInfo');
 const fileError=document.getElementById('fileError');
@@ -573,10 +567,13 @@ seamanBookInput.addEventListener('change',e=>{
 
 document.getElementById('registrationForm').addEventListener('submit',async e=>{
     e.preventDefault();
+    if(!state.authReady){showModal('Please Wait','Application is still initializing.');return}
+    
     const fullName=document.getElementById('fullName').value.trim();
     const email=normalizeEmail(document.getElementById('email').value);
     const nationality=document.getElementById('nationality').value.trim();
     const seamanBook=seamanBookInput.files[0];
+    
     if(!fullName||!email||!nationality){showModal('Error','Please complete all required fields.');return}
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showModal('Error','Please enter a valid email address.');return}
     if(!seamanBook){showModal('Error','Please select a seaman\'s book document.');return}
@@ -585,53 +582,29 @@ document.getElementById('registrationForm').addEventListener('submit',async e=>{
     showLoading('Registering...');
 
     try{
-        // Check for existing applicant
         const emailLower=email.toLowerCase();
-        const applicantsRef=collection(db,'applicants');
-        const q=query(applicantsRef,where('emailLower','==',emailLower));
-        const snap=await getDoc(doc(db,'applicants',emailLower));
+        const applicantRef=doc(db,'applicants',emailLower);
+        const snap=await getDoc(applicantRef);
 
         let applicantData;
         if(snap.exists()){
             applicantData=snap.data();
-            // Check eligibility
-            if(applicantData.passed){hideLoading();showModal('Not Eligible','You have already passed this assessment. No further attempts are permitted.');regBtn.disabled=false;return}
+            if(applicantData.passed){hideLoading();showModal('Not Eligible','You have already passed this assessment.');regBtn.disabled=false;return}
             if(applicantData.attemptsUsed>=2){hideLoading();showModal('Not Eligible','You have used all permitted attempts.');regBtn.disabled=false;return}
-            if(applicantData.failed65){hideLoading();showModal('Not Eligible','You did not achieve the minimum required score. No further attempts are permitted.');regBtn.disabled=false;return}
-            // Check for active attempt
-            if(applicantData.activeAttempt){
-                const attDoc=await getDoc(doc(db,'attempts',applicantData.activeAttempt));
-                if(attDoc.exists()){
-                    const att=attDoc.data();
-                    if(att.status==='active'&&att.deadline&&att.deadline.toMillis()>Date.now()){
-                        // Resume existing attempt
-                        state.applicant=applicantData;
-                        state.attempt={id:applicantData.activeAttempt,...att};
-                        hideLoading();
-                        await resumeAssessment();
-                        return;
-                    }
-                }
-            }
+            if(applicantData.failed65){hideLoading();showModal('Not Eligible','You did not achieve the minimum required score.');regBtn.disabled=false;return}
         }
 
-        // Create new applicant or update
         const attemptId='att_'+Date.now()+'_'+Math.random().toString(36).substr(2,9);
         const now=Date.now();
-        const deadline=now+30*60*1000; // 30 minutes
-
+        const deadline=now+30*60*1000;
         const questions=selectQuestions();
-        // Store question selection (without correct answers exposed to client logic)
-        const questionIds=questions.map(q=>q.id);
         const optionMapping=questions.map(q=>({id:q.id,options:q.options,correctIndex:q.correct}));
 
-        // Save attempt
         await setDoc(doc(db,'attempts',attemptId),{
             applicantEmail:emailLower,
             status:'active',
             startedAt:Timestamp.fromMillis(now),
             deadline:Timestamp.fromMillis(deadline),
-            questionIds:questionIds,
             optionMapping:optionMapping,
             answers:{},
             submitted:false,
@@ -639,8 +612,7 @@ document.getElementById('registrationForm').addEventListener('submit',async e=>{
             createdAt:serverTimestamp()
         });
 
-        // Save/update applicant
-        await setDoc(doc(db,'applicants',emailLower),{
+        await setDoc(applicantRef,{
             fullName:fullName,
             emailLower:emailLower,
             email:email,
@@ -662,11 +634,10 @@ document.getElementById('registrationForm').addEventListener('submit',async e=>{
     }catch(err){
         hideLoading();regBtn.disabled=false;
         console.error('Registration error:',err);
-        showModal('Registration Failed','Unable to complete registration. Please check your connection and try again.');
+        showModal('Registration Failed',`Error: ${err.message}. Please check your internet connection and try again.`);
     }
 });
 
-// ========== START ASSESSMENT UI ==========
 function startAssessmentUI(){
     showPage('assessmentPage');
     document.getElementById('applicantName').textContent=state.applicant.fullName;
@@ -675,32 +646,6 @@ function startAssessmentUI(){
     startTimer();
 }
 
-async function resumeAssessment(){
-    const att=state.attempt;
-    const mapping=att.optionMapping;
-    // Reconstruct questions from mapping (without exposing correct answers in UI logic)
-    state.questions=mapping.map(m=>({id:m.id,text:getQuestionText(m.id),options:m.options,correct:m.correctIndex}));
-    state.answers=att.answers||{};
-    state.deadline=att.deadline.toMillis();
-    startAssessmentUI();
-    // Restore answers UI
-    Object.entries(state.answers).forEach(([qIdx,aIdx])=>{
-        const opts=document.querySelectorAll(`[data-question="${qIdx}"]`);
-        opts.forEach(o=>o.classList.remove('selected'));
-        if(opts[parseInt(aIdx)])opts[parseInt(aIdx)].classList.add('selected');
-    });
-    updateNavigation();
-}
-
-function getQuestionText(qid){
-    for(const cat of Object.values(QB)){
-        const found=cat.find(q=>q.id===qid);
-        if(found)return found.text;
-    }
-    return 'Question';
-}
-
-// ========== RENDER QUESTIONS ==========
 function renderQuestions(){
     const container=document.getElementById('questionsContainer');container.innerHTML='';
     state.questions.forEach((q,idx)=>{
@@ -717,15 +662,11 @@ function renderQuestions(){
             e.target.classList.add('selected');
             state.answers[qi]=oi;
             updateNavigation();
-            // Save to Firestore
-            try{
-                await updateDoc(doc(db,'attempts',state.attempt.id),{[`answers.${qi}`]:oi});
-            }catch(err){console.warn('Save answer failed:',err)}
+            try{await updateDoc(doc(db,'attempts',state.attempt.id),{[`answers.${qi}`]:oi})}catch(err){console.warn('Save answer failed:',err)}
         });
     });
 }
 
-// ========== RENDER NAVIGATION ==========
 function renderNavigation(){
     const grid=document.getElementById('navGrid');grid.innerHTML='';
     state.questions.forEach((_,idx)=>{
@@ -742,7 +683,6 @@ function updateNavigation(){
     });
 }
 
-// ========== TIMER ==========
 function startTimer(){
     state.deadline=state.attempt.deadline;
     const display=document.getElementById('timerDisplay');
@@ -764,7 +704,6 @@ async function autoSubmit(){
     await submitAssessment(true);
 }
 
-// ========== SUBMIT ==========
 document.getElementById('submitBtn').addEventListener('click',()=>{
     if(state.submitted)return;
     const unanswered=state.questions.length-Object.keys(state.answers).length;
@@ -782,12 +721,8 @@ async function submitAssessment(auto){
     clearInterval(state.timerInterval);
 
     try{
-        // Build answer key for scoring (server-side would do this, but for this implementation we score locally then save)
-        // In production, this scoring would happen in Cloud Functions
-        const mapping=state.attempt.optionMapping||state.questions.map(q=>({id:q.id,correctIndex:q.correct}));
         let score=0;
-        const answerEntries=Object.entries(state.answers);
-        answerEntries.forEach(([qIdx,aIdx])=>{
+        Object.entries(state.answers).forEach(([qIdx,aIdx])=>{
             const q=state.questions[parseInt(qIdx)];
             if(q&&aIdx===q.correct)score+=4;
         });
@@ -804,24 +739,10 @@ async function submitAssessment(auto){
 
         const refNumber=genRef();
         const completedAt=new Date().toISOString();
+        const resultData={score,percentage,status,referenceNumber:refNumber,completedAt,applicantName:state.applicant.fullName,email:state.applicant.email,nationality:state.applicant.nationality};
 
-        // Save result to Firestore
-        const resultData={
-            score,percentage,status,
-            referenceNumber:refNumber,
-            completedAt,
-            applicantName:state.applicant.fullName,
-            email:state.applicant.email,
-            nationality:state.applicant.nationality
-        };
+        await updateDoc(doc(db,'attempts',state.attempt.id),{submitted:true,submittedAt:serverTimestamp(),...resultData});
 
-        await updateDoc(doc(db,'attempts',state.attempt.id),{
-            submitted:true,
-            submittedAt:serverTimestamp(),
-            ...resultData
-        });
-
-        // Update applicant record
         const updateData={activeAttempt:null};
         if(status==='PASS')updateData.passed=true;
         else if(status==='FAIL'&&state.attempt.attemptNumber>=2)updateData.failed65=true;
@@ -838,7 +759,6 @@ async function submitAssessment(auto){
     }
 }
 
-// ========== SHOW RESULT ==========
 function showResult(result){
     showPage('resultPage');
     document.getElementById('resultScore').textContent=`${result.score} / 100`;
@@ -858,80 +778,56 @@ function showResult(result){
     if(result.status==='PASS'){
         icon.textContent='✓';icon.className='result-icon pass';
         status.textContent='PASS';status.className='result-status pass';
-        msg.textContent='Congratulations! You have successfully passed the MCL International Cruise maritime assessment. Your results have been recorded.';
+        msg.textContent='Congratulations! You have successfully passed the MCL International Cruise maritime assessment.';
     }else if(result.status==='FINAL_RETRY_ELIGIBLE'){
         icon.textContent='⚠';icon.className='result-icon retry';
         status.textContent='FINAL RETRY ELIGIBLE';status.className='result-status retry';
-        msg.textContent='You are eligible for one final retry. Please review the material carefully before attempting again.';
+        msg.textContent='You are eligible for one final retry.';
         retryBtn.classList.remove('hidden');
-        retryBtn.onclick=()=>{
-            showPage('registrationPage');
-            // Pre-fill and allow re-registration for retry
-            document.getElementById('fullName').value=state.applicant.fullName;
-            document.getElementById('email').value=state.applicant.email;
-            document.getElementById('nationality').value=state.applicant.nationality;
-        };
+        retryBtn.onclick=()=>{showPage('registrationPage');document.getElementById('fullName').value=state.applicant.fullName;document.getElementById('email').value=state.applicant.email;document.getElementById('nationality').value=state.applicant.nationality};
     }else{
         icon.textContent='✗';icon.className='result-icon fail';
         status.textContent='FAIL';status.className='result-status fail';
-        msg.textContent='Unfortunately, you did not achieve the minimum required score. Thank you for your interest in MCL International Cruise.';
+        msg.textContent='Unfortunately, you did not achieve the minimum required score.';
     }
 
     window.currentResult=result;
 }
 
-// ========== PDF DOWNLOAD ==========
 document.getElementById('downloadPdfBtn').addEventListener('click',()=>{
     if(!window.currentResult){showModal('Error','Result data not available.');return}
     try{
         const{jsPDF}=window.jspdf;
         const pdf=new jsPDF();
         const r=window.currentResult;
-        
-        // Header
         pdf.setFillColor(26,58,92);pdf.rect(0,0,210,40,'F');
         pdf.setTextColor(255,255,255);pdf.setFontSize(22);pdf.setFont('helvetica','bold');
         pdf.text('MCL',20,20);pdf.setFontSize(10);pdf.setFont('helvetica','normal');
         pdf.text('International Cruise',20,28);
         pdf.setFontSize(14);pdf.text('MARITIME ASSESSMENT RESULT',70,25);
-
-        // Body
         pdf.setTextColor(44,62,80);pdf.setFontSize(12);
         let y=55;
-        const addLine=(label,value)=>{
-            pdf.setFont('helvetica','bold');pdf.text(label+':',20,y);
-            pdf.setFont('helvetica','normal');pdf.text(String(value),80,y);
-            y+=10;
-        };
-
+        const addLine=(label,value)=>{pdf.setFont('helvetica','bold');pdf.text(label+':',20,y);pdf.setFont('helvetica','normal');pdf.text(String(value),80,y);y+=10};
         pdf.setFontSize(14);pdf.setFont('helvetica','bold');pdf.text('Applicant Information',20,y);y+=12;
         pdf.setFontSize(11);
-        addLine('Name',r.applicantName);
-        addLine('Email',r.email);
-        addLine('Nationality',r.nationality);
-        y+=5;
-        pdf.setFontSize(14);pdf.setFont('helvetica','bold');pdf.text('Assessment Details',20,y);y+=12;
+        addLine('Name',r.applicantName);addLine('Email',r.email);addLine('Nationality',r.nationality);
+        y+=5;pdf.setFontSize(14);pdf.setFont('helvetica','bold');pdf.text('Assessment Details',20,y);y+=12;
         pdf.setFontSize(11);
-        addLine('Reference',r.referenceNumber);
-        addLine('Date',new Date(r.completedAt).toLocaleString());
-        y+=5;
-        pdf.setFontSize(14);pdf.setFont('helvetica','bold');pdf.text('Result',20,y);y+=12;
+        addLine('Reference',r.referenceNumber);addLine('Date',new Date(r.completedAt).toLocaleString());
+        y+=5;pdf.setFontSize(14);pdf.setFont('helvetica','bold');pdf.text('Result',20,y);y+=12;
         pdf.setFontSize(11);
-        addLine('Score',r.score+' / 100');
-        addLine('Percentage',r.percentage+'%');
-        addLine('Status',r.status==='PASS'?'PASS':r.status==='FAIL'?'FAIL':'FINAL RETRY ELIGIBLE');
-
-        // Footer
+        addLine('Score',r.score+' / 100');addLine('Percentage',r.percentage+'%');addLine('Status',r.status);
         pdf.setFillColor(26,58,92);pdf.rect(0,275,210,20,'F');
         pdf.setTextColor(255,255,255);pdf.setFontSize(8);
         pdf.text('MCL International Cruise — Your Journey to a Career at Sea Begins Here',105,283,{align:'center'});
-
         pdf.save(`MCL_Result_${r.referenceNumber}.pdf`);
     }catch(err){
         console.error('PDF error:',err);
-        showModal('Error','Failed to generate PDF. Please try again.');
+        showModal('Error','Failed to generate PDF.');
     }
 });
+
+initAuth();
 </script>
 </body>
 </html>
